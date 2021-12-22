@@ -3,12 +3,25 @@ import numpy as np
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
+from pytransform3d.batch_rotations import quaternion_slerp_batch
+from pytransform3d.rotations import q_id
+from pytransform3d.trajectories import plot_trajectory
+from scipy.spatial.transform import Rotation
 
 data = loadmat('dataset3.mat')
 
 # Question 1 - Q and R matrice
 Q0 = np.diag(np.concatenate((data['v_var'], data['w_var'])).flatten())
 R0 = np.diag(data['y_var'].flatten())
+
+theta_vk_i = data['theta_vk_i']
+r_i_vk_i = data['r_i_vk_i']
+
+Tgt = np.zeros((theta_vk_i.shape[1], 4, 4))
+for i in range(0, theta_vk_i.shape[1]):
+    Tgt[i, 0:3, 0:3] = Rotation.from_euler('zyx', theta_vk_i[:,i]).as_matrix()
+    Tgt[i, 0:3, 3] = r_i_vk_i[:,i]
+    Tgt[i, 3, 3] = 1
 
 
 def Q(k: int) -> np.ndarray:
@@ -107,13 +120,12 @@ def F(k: int) -> np.matrix:
     return Ad(ham(k))
 
 
-
 # Initialization
-T_prior = np.empty((k2, 4, 4))
-P_prior = np.empty((k2, 6, 6))
-K = np.empty((k2, 6, 6))
-P_post = np.empty((k2, 6, 6))
-T_post = np.empty((k2, 4, 4))
+T_prior = np.zeros((k2, 4, 4))
+P_prior = np.zeros((k2, 6, 6))
+K = np.zeros((k2, 6, 6))
+P_post = np.zeros((k2, 6, 6))
+T_post = np.zeros((k2, 4, 4))
 
 def Cvki(k):
     return T_prior[k][0:2,0:2]
@@ -161,6 +173,7 @@ def y_prior(k: int) -> np.ndarray:
         v = np.concatenate((v, y_prior_jk(j, k)))
     return v
 
+# Using EKF
 for k in range(k1, k2):
     P_prior[k] = F(k - 1) @ P_post[k - 1] @ F(k - 1).T + Q(k)
     T_prior[k] = ham(k) @ T_post[k - 1]
@@ -170,3 +183,28 @@ for k in range(k1, k2):
     # K[k] = P_prior[k] @ G(k).T @ (G(k) @ P_prior[k] @ G(k).T + R(k)).I
     # P_post = (1 - K[k] @ G(k)) @ P_prior[k]
     # T_post[k] = numpy.exp((K[k] @ (y(k) - y_prior(k)))) * T_prior[k]
+
+def plotTrajectory(T, k1, k2):
+    P = np.zeros((k2 - k1, 7))
+    P[:, 0:3] = T[k1:k2,0:3,3]
+    for k in range(k1, k2):
+        P[k - k1,3:7] = Rotation.from_matrix(T[k,0:3,0:3]).as_quat()
+
+    ax = plot_trajectory(
+        P=P, s=0.05, n_frames=100, normalize_quaternions=False, lw=1, c="k")
+    ax.set(xlim=(1.5, 3.5), ylim=(1.5, 3.5), zlim=(0, 2))
+
+    plt.show()
+
+plotTrajectory(Tgt, k1, k2)
+plotTrajectory(T_post, k1, k2)
+
+def e(x_op: np.ndarray):
+
+    pass
+xop
+
+A = H.transpose @ np.linalg.inv(W) @ H
+b = H.transpose @ np.linalg.inv(W) @ e(xop)
+
+delta_x_star = A / b
