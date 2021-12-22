@@ -85,12 +85,16 @@ def curly_wedge(r: np.ndarray) -> np.ndarray:
     return np.vstack((temp1, temp2))
 
 
-def shield(r: np.ndarray) -> np.matrix:
-    return np.matrix([[r[4], 0, r[2], -r[1]],
-                      [r[5], -r[2], 0, r[0]],
-                      [r[6], r[3], -r[0], 0],
-                      [0, 0, 0, 0]])
+def shield(r: np.ndarray) -> np.ndarray:
+    if r.shape[0] == 6:
+        return np.matrix([[r[4], 0, r[2], -r[1]],
+                          [r[5], -r[2], 0, r[0]],
+                          [r[6], r[3], -r[0], 0],
+                          [0, 0, 0, 0]])
+    else:
+        tmp1 = np.hstack((np.eye(3) * r[3], -wedge(r[0:3])))
 
+        return np.vstack((tmp1, np.zeros((1,6))))
 
 def del_t(k: int) -> int:
     return (t[k] - t[k - 1])[0]
@@ -128,27 +132,29 @@ P_post = np.zeros((k2, 6, 6))
 T_post = np.zeros((k2, 4, 4))
 
 def Cvki(k):
-    return T_prior[k][0:2,0:2]
+    return T_prior[k][0:3,0:3]
 
 def rvki(k):
-    return T_prior[k][3,0:2]
+    return T_prior[k][3,0:3]
 
 def p(j, k):
     Ccv = data['C_c_v']
-    rho_v_c_v = data['rho_v_c_v']
-    rho_i_pj_i = data['rho_i_pj_i']
+    rho_v_c_v = data['rho_v_c_v'].squeeze()
+    rho_i_pj_i = data['rho_i_pj_i'].transpose()
 
-    return Ccv @ (Cvki(k) @ (rho_i_pj_i - rvki(k)) - rho_v_c_v)
+    rpji = Ccv @ (Cvki(k) @ (rho_i_pj_i[j] - rvki(k)) - rho_v_c_v)
+
+    return np.hstack((rpji, 1))
 
 
-def Gjk(j: int, k: int):
+def Gjk(j: int, k: int) -> np.ndarray:
     return D.transpose() @ shield(T_prior[k] @ p(j, k))
 
 
 def G(k: int):
-    res = np.empty
+    res = np.empty((0, 6))
     for j in range(1, 20):
-        res = np.concatenate((res, Gjk(j, k)))
+        res = np.vstack((res, Gjk(j, k)))
     return res
 
 
@@ -174,15 +180,16 @@ def y_prior(k: int) -> np.ndarray:
     return v
 
 # Using EKF
-for k in range(k1, k2):
-    P_prior[k] = F(k - 1) @ P_post[k - 1] @ F(k - 1).T + Q(k)
-    T_prior[k] = ham(k) @ T_post[k - 1]
+def ekf():
+    for k in range(k1, k2):
+        P_prior[k] = F(k - 1) @ P_post[k - 1] @ F(k - 1).T + Q(k)
+        T_prior[k] = ham(k) @ T_post[k - 1]
 
-    P_post[k] = P_prior[k]
-    T_post[k] = T_prior[k]
-    # K[k] = P_prior[k] @ G(k).T @ (G(k) @ P_prior[k] @ G(k).T + R(k)).I
-    # P_post = (1 - K[k] @ G(k)) @ P_prior[k]
-    # T_post[k] = numpy.exp((K[k] @ (y(k) - y_prior(k)))) * T_prior[k]
+        P_post[k] = P_prior[k]
+        T_post[k] = T_prior[k]
+        K[k] = P_prior[k] @ G(k).T @ (G(k) @ P_prior[k] @ G(k).T + R(k)).I
+        P_post = (1 - K[k] @ G(k)) @ P_prior[k]
+        T_post[k] = numpy.exp((K[k] @ (y(k) - y_prior(k)))) * T_prior[k]
 
 def plotTrajectory(T, k1, k2):
     P = np.zeros((k2 - k1, 7))
@@ -196,15 +203,26 @@ def plotTrajectory(T, k1, k2):
 
     plt.show()
 
-plotTrajectory(Tgt, k1, k2)
-plotTrajectory(T_post, k1, k2)
+# plotTrajectory(Tgt, k1, k2)
+# plotTrajectory(T_post, k1, k2)
 
 def e(x_op: np.ndarray):
 
     pass
-xop
 
-A = H.transpose @ np.linalg.inv(W) @ H
-b = H.transpose @ np.linalg.inv(W) @ e(xop)
+
+def H():
+    H = np.zeros((6 * (k2 - k1 + 1) * 2, 6 * (k2 - k1 + 1)))
+    for k in range(0, k2 - k1 + 1):
+        H[k * 6:(k+1) * 6, k * 6:(k+1) * 6] = np.eye(6)
+    for k in range(0, k2 - k1):
+        H[(k + 1) * 6:(k+2) * 6, k * 6:(k+1) * 6] = -F(k)
+    for k in range(0, k2 - k1):
+        H[(k + 1) * 6:(k+2) * 6, k * 6:(k+1) * 6] = G(k)
+
+    pass
+
+A = H().transpose @ np.linalg.inv(W) @ H()
+b = H().transpose @ np.linalg.inv(W) @ e(xop)
 
 delta_x_star = A / b
