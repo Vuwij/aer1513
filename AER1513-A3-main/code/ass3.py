@@ -8,7 +8,7 @@ from scipy.io import loadmat
 import matplotlib
 import matplotlib.pyplot as plt
 
-import main
+# import main
 
 import so3
 import se3
